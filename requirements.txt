@@ -7,7 +7,6 @@ scipy
 scikit-learn
 xgboost
 catboost
-base64
 calendar
 warnings
 time
