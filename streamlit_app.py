@@ -1,36 +1,27 @@
 import streamlit as st
+import leafmap.foliumap as leafmap
 import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
 
-# Sidebar content
-markdown = "GitHub Repository: <https://github.com/codingpanda19>"
+# Customize the sidebar
+markdown = """
+GitHub Repository: <https://github.com/codingpanda19>
+"""
+
 st.sidebar.title("About")
 st.sidebar.info(markdown)
 logo = "https://i.imgur.com/UbOXYAU.png"
 st.sidebar.image(logo)
 
-# Navigation
-pages = {
-    "Home": "Home.py",
-    "HGM": "1_📉_HGM.py",
-    "Rainfall Runoff Module": "2_💦_RainfallRunoffModule.py",
-    "Surface Water Module": "3_🛰️_SurfaceWaterModule.py",
-    "Baseflow Module": "4_🎛️_BaseflowModule.py",
-    "Flood Forecasting Module": "5_🌋_FloodForecastingModule.py",
-    "Interactive Map": "6_🌍_Interactive_Map.py",
-}
+# Customize page title
+st.title("HGM: Towards Fevelopment of a Hydrological General Model")
 
-st.sidebar.title("Navigation")
-selection = st.sidebar.radio("Go to", list(pages.keys()))
 
-# Page title
-st.title(f"{selection}")
+st.title("Forest Monitor App")
 
-# Dynamic page loading based on selection
-page = pages[selection]
+# Specify the URL of the website you want to embed
+website_url = "https://say2byjargon-20ee8e68f2dd.herokuapp.com/"
 
-with open(page, "r", encoding="utf-8") as file:
-    page_code = file.read()
-
-exec(page_code, globals())
+# Embed the website within an iframe in your Streamlit app
+components.iframe(website_url, height=1000)
