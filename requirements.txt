@@ -7,8 +7,6 @@ scipy
 scikit-learn
 xgboost
 catboost
-warnings
-time
 tqdm
 geopandas
 folium
