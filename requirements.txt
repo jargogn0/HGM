@@ -10,3 +10,4 @@ catboost
 tqdm
 geopandas
 folium
+leafmap
