@@ -4,6 +4,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import shapiro
+from sklearn.metrics import mean_squared_error
+from sklearn.base import BaseEstimator, RegressorMixin
+from tqdm import tqdm
+import time
+import matplotlib.dates as mdates
+import geopandas as gpd
+import folium
+from datetime import timedelta
+import base64
+import calendar
+import warnings
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
@@ -12,22 +23,11 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 from catboost import CatBoostRegressor
-import base64
-import calendar
-import warnings
-from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.impute import SimpleImputer
-import time  # Import time module
-from tqdm import tqdm  # Import tqdm for progress bar
 import matplotlib.animation as animation
 from IPython.display import HTML
-import matplotlib.dates as mdates
-import geopandas as gpd
-import folium
-from datetime import timedelta
 
 # Suppress future warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -65,6 +65,30 @@ def plot_data_for_basin_and_year(df, selected_basin, selected_year):
     # Display the plot
     st.pyplot(fig)
 
+# Define the function to calculate Nash-Sutcliffe Efficiency (NSE)
+def calculate_nse(observed, simulated):
+    numerator = np.sum((observed - simulated) ** 2)
+    denominator = np.sum((observed - np.mean(observed)) ** 2)
+    nse = 1 - (numerator / denominator)
+    return nse
+
+# Define the function to calculate Kling-Gupta Efficiency (KGE)
+def calculate_kge(observed, simulated):
+    mean_observed = np.mean(observed)
+    mean_simulated = np.mean(simulated)
+    std_observed = np.std(observed)
+    std_simulated = np.std(simulated)
+    correlation = np.corrcoef(observed, simulated)[0, 1]
+    kge = 1 - np.sqrt((correlation - 1) ** 2 + (std_simulated / std_observed - 1) ** 2 + (mean_simulated / mean_observed - 1) ** 2)
+    return kge
+
+# Define the function to calculate Mean Squared Error (MSE)
+def calculate_mse(observed, simulated):
+    return mean_squared_error(observed, simulated)
+
+# Define the function to calculate Root Mean Squared Error (RMSE)
+def calculate_rmse(observed, simulated):
+    return np.sqrt(mean_squared_error(observed, simulated))
 
 @st.cache_data
 def load_data(file_path):
@@ -114,44 +138,94 @@ class ExtendedEnsembleRegressor(BaseEstimator, RegressorMixin):
     def predict(self, X):
         predictions = np.column_stack([model.predict(X) for _, model in self.models.items()])
         return np.mean(predictions, axis=1)
-
-def train_model(X, y):
-    ensemble = ExtendedEnsembleRegressor()  # Initialize ensemble object
+def train_and_evaluate_model(X_train, y_train, X_test, y_test):
+    ensemble = ExtendedEnsembleRegressor()
     st.write("Training...")
-    total_models = len(ensemble.models)
-    mse_results = {}  # Store MSE results for each model
-    for i, (name, model) in enumerate(ensemble.models.items(), start=1):
+    train_evaluation_metrics = {}  # Store evaluation metrics for the training set
+    test_evaluation_metrics = {}   # Store evaluation metrics for the test set
+    train_nse_values = {}  # Store NSE values for training set
+    test_nse_values = {}   # Store NSE values for test set
+    
+    # Plotting Qobs vs Qsim for each model
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    for name, model in ensemble.models.items():
         st.write(f"Training {name}...")
-        
-        # Start a progress bar for each model training
-        with st.empty():
-            progress_bar = st.progress(0)
-            for percent_complete in tqdm(range(0, 101, 5), leave=False):
-                time.sleep(0.1)  # Simulate training time
-                progress_bar.progress(percent_complete)
-        
-        model.fit(X, y)
+        progress_bar = st.progress(0)
+        for percent_complete in range(0, 101, 5):
+            time.sleep(0.1)
+            progress_bar.progress(percent_complete)
+        model.fit(X_train, y_train)
+        progress_bar.empty()
         st.write(f"Model {name} trained.")
         
-        # Display results for each model
-        st.write(f"Results for {name}:")
-        y_pred = model.predict(X)
-        mse = mean_squared_error(y, y_pred)
-        mse_results[name] = mse  # Store MSE for this model
-        st.write(f"Mean Squared Error: {mse}")
-
-    st.success("All models trained successfully.")
+        # Evaluate on the training set
+        st.write(f"Evaluating {name} on the training set...")
+        y_train_pred = model.predict(X_train)
+        train_mse = mean_squared_error(y_train, y_train_pred)
+        train_rmse = np.sqrt(train_mse)
+        train_nse = calculate_nse(y_train, y_train_pred)
+        train_kge = calculate_kge(y_train, y_train_pred)
+        train_evaluation_metrics[name] = {'MSE': train_mse, 'RMSE': train_rmse, 'NSE': train_nse, 'KGE': train_kge}
+        train_nse_values[name] = train_nse  # Store NSE value for training set
+        st.write(f"Training Evaluation Metrics for {name}:")
+        st.write(train_evaluation_metrics[name])
+        
+        # Evaluate on the test set
+        st.write(f"Evaluating {name} on the test set...")
+        y_test_pred = model.predict(X_test)
+        test_mse = mean_squared_error(y_test, y_test_pred)
+        test_rmse = np.sqrt(test_mse)
+        test_nse = calculate_nse(y_test, y_test_pred)
+        test_kge = calculate_kge(y_test, y_test_pred)
+        test_evaluation_metrics[name] = {'MSE': test_mse, 'RMSE': test_rmse, 'NSE': test_nse, 'KGE': test_kge}
+        test_nse_values[name] = test_nse  # Store NSE value for test set
+        st.write(f"Test Evaluation Metrics for {name}:")
+        st.write(test_evaluation_metrics[name])
+        
+        # Plot Qobs vs Qsim
+        ax.scatter(y_test, y_test_pred, label=name)
     
-    # Determine best model based on MSE
-    best_model_name = min(mse_results, key=mse_results.get)
-    st.write(f"Best model based on Mean Squared Error: {best_model_name}")
-    
-    # Plot the results
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(mse_results.keys(), mse_results.values())
-    ax.set_ylabel('Mean Squared Error')
-    ax.set_title('Mean Squared Error for Each Model')
+    ax.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], '--', color='gray', label='1:1 line')
+    ax.set_xlabel('Observed Flow Rate (Qobs)')
+    ax.set_ylabel('Simulated Flow Rate (Qsim)')
+    ax.set_title('Qobs vs Qsim for Different Models')
+    ax.legend()
     st.pyplot(fig)
+    
+    # Plot NSE values for training and test sets
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.bar(train_nse_values.keys(), train_nse_values.values(), label='Training NSE')
+    ax.bar(test_nse_values.keys(), test_nse_values.values(), label='Test NSE')
+    ax.set_xlabel('Model')
+    ax.set_ylabel('NSE')
+    ax.set_title('NSE Comparison for Training and Test Sets')
+    ax.legend()
+    st.pyplot(fig)
+    
+    st.success("All models trained and evaluated successfully.")
+    
+    # Calculate the difference in NSE between the train and test sets for each model
+    for name in train_evaluation_metrics.keys():
+        train_nse = train_evaluation_metrics[name]['NSE']
+        test_nse = test_evaluation_metrics[name]['NSE']
+        difference = test_nse - train_nse
+        test_evaluation_metrics[name]['Difference'] = difference
+    
+    # Find the best model based on NSE and the least overfitting
+    best_model_name = max(test_evaluation_metrics, key=lambda k: test_evaluation_metrics[k]['NSE'] - abs(test_evaluation_metrics[k]['Difference']))
+    st.write(f"Best model based on Nash-Sutcliffe Efficiency (NSE) and minimal overfitting/underfitting: {best_model_name}")
+    
+    # List models showing signs of overfitting or underfitting
+    overfitting_models = [name for name, metrics in test_evaluation_metrics.items() if metrics['Difference'] < 0]
+    underfitting_models = [name for name, metrics in test_evaluation_metrics.items() if metrics['Difference'] > 0]
+    st.write("Models showing signs of overfitting:")
+    st.write(overfitting_models)
+    st.write("Models showing signs of underfitting:")
+    st.write(underfitting_models)
+
+
+
 
 def parse_test_data(test_data, columns):
     missing_columns = set(columns) - set(test_data.columns)
@@ -262,8 +336,6 @@ def main():
         else:
             st.write(f"P values for {basin_choice} Basin are likely not from a normal distribution.")
 
-
-
     if st.sidebar.checkbox('Select Year and Basin for Detailed Analysis'):
         selected_basin = st.sidebar.selectbox('Select Basin for Detailed Analysis:', sorted(df['Basin'].unique()))
         available_years = sorted(df[df['Basin'] == selected_basin]['Date'].dt.year.unique())
@@ -296,6 +368,8 @@ def main():
                         plot_placeholder.pyplot(fig)
                         time.sleep(0.5)  # Adjust as needed for animation speed
 
+                st.success("Animation completed.")
+
     # Machine learning model training
     if st.sidebar.checkbox("Train Machine Learning Model"):
         st.sidebar.subheader("Model Training")
@@ -306,12 +380,16 @@ def main():
                 custom_df = pd.read_csv(uploaded_file)
                 X_custom = custom_df.drop(columns=['Q', 'Date', 'Basin'])
                 y_custom = custom_df['Q']
+                X_train, X_test, y_train, y_test = train_test_split(X_custom, y_custom, test_size=0.2, random_state=42)
                 if st.sidebar.button("Train Model"):
-                    train_model(X_custom, y_custom)
+                    train_and_evaluate_model(X_train, y_train, X_test, y_test)
         else:
+            # Split your data into training and testing sets
+            X = df_filtered.drop(columns=['Q', 'Date', 'Basin'])
+            y = df_filtered['Q']
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             if st.sidebar.button("Train Model"):
-                train_model(df_filtered.drop(columns=['Q', 'Date', 'Basin']), df_filtered['Q'])
-
+                train_and_evaluate_model(X_train, y_train, X_test, y_test)
    # Test with selected basins or custom data
     test_option = st.sidebar.checkbox("Test with Selected Basins or Custom Data")
     if test_option:
@@ -360,7 +438,6 @@ def main():
                         time.sleep(0.5)  # Adjust as needed for visualization
 
                 st.success("Testing for all selected basins completed.")
-
 
 if __name__ == "__main__":
     main()
